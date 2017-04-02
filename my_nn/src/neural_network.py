@@ -2,6 +2,8 @@ import pdb
 import numpy as np
 import mnist_loader
 from sklearn.preprocessing import scale
+import time
+import mnist_loader
 
 class NeuralNetwork():
     def __init__(self, layers):
@@ -17,51 +19,62 @@ class NeuralNetwork():
             self.biases.append(bias)
 
     def cross_entropy_loss(self, y_, y):
-        return np.sum((1 - y) * np.log(1 - y_) + y * np.log(y_))
+        pdb.set_trace()
+        return np.sum((1 - y) * np.log(1 - y_) + y * np.log(y_)) / len(y_)
 
     def softmax(self, y):
         # Here we need to take softmax of prediction and y
         return np.exp(y) / np.sum(np.exp(y), axis=1, keepdims=True)
 
     def sigmoid(self, y):
-        return 1 / (1 + np.exp(-y))
+        ans = 1 / (1 + np.exp(-y))
+
+        return ans
 
     def sigmoid_derivative(self, y):
         return self.sigmoid(y) * (1 - self.sigmoid(y))
 
-    def fit(self, X, y, epochs=10000):
-        for i in range(epochs):
-            scores = self.backprop(X, y, i)
-            if (i % 1000) == 0:
-                print("prediction: ")
-                print(scores)
-                print("actual: ")
-                print(y)
+    def fit(self, X, y, epochs=30, batch_size=1000, rate=3.0):
+        for e in range(epochs):
+            for i in range(len(X) / batch_size):
+                idxs = np.random.choice(np.arange(len(X)), batch_size)
+                batch_x = X[idxs]
+                batch_y = y[idxs]
+                scores = self.backprop(batch_x, batch_y, rate)
+
+            print('Finished epoch', e)
+            pred = self.predict(X)
+            #print('loss', self.cross_entropy_loss(pred, y))
+            print('accuracy', self.accuracy(pred, y))
+
+    def predict(self, x):
+        for weight, bias in zip(self.weights, self.biases):
+            z = activation.dot(weight) + bias
+            activation = self.sigmoid(z)
+        return activation
 
     def set_gradient(self, y_, y):
         return y_ - y
 
-    def backprop(self, X, y, epoch_num, rate=1e-3):
+    def accuracy(self, y_, y):
+        prediction_idxs = np.argmax(y_, axis=1)
+        return y[range(len(y)), prediction_idxs].mean()
+
+    def backprop(self, X, y, rate=1e-3):
         # Forward pass
         zs = []
         activations = [X]
-        output = X
-        for i in range(0, len(self.layers) - 1):
-            weight = self.weights[i]
-            bias = self.biases[i]
-            z = output.dot(weight) + bias
+        activation = X
+        for weight, bias in zip(self.weights, self.biases):
+            z = activation.dot(weight) + bias
             zs.append(z)
-            output = self.sigmoid(z)
-            activations.append(output)
+            activation = self.sigmoid(z)
+            activations.append(activation)
 
         # Change the name to make this more consistent
-        scores = self.softmax(output)
-        loss = self.cross_entropy_loss(scores, y)
+        #scores = self.softmax(activation)
+        scores = activation
         gradients = self.set_gradient(scores, y)
-
-        if (epoch_num % 1000) == 0:
-            print("first gradient")
-            print(gradients)
 
         dWs = []
         dbs = []
@@ -73,12 +86,10 @@ class NeuralNetwork():
             dbs.insert(0, db)
 
             # Pass gradients back
-            gradients = gradients.dot(self.weights[i].T) * self.sigmoid_derivative(activations[i])
-
-        if (epoch_num % 1000) == 0:
-            print("last gradient")
-            print(gradients)
-            pdb.set_trace()
+            #pdb.set_trace()
+            dz_dw = gradients.dot(self.weights[i].T)
+            dw_dzprev = self.sigmoid_derivative(zs[i])
+            gradients = (gradients * self.sigmoid_derivative(zs[i])).dot(self.weights[i].T)
 
         for i in range(len(self.weights)):
             self.weights[i] -= rate * dWs[i]
@@ -98,48 +109,39 @@ class NeuralNetwork():
         #return self.softmax(output)
         return output
 
-nn = NeuralNetwork([3, 5, 2])
-X = scale(np.array([
-    [36, 100000, 180],
-    [30, 88000, 150],
-    [27, 36000, 160],
-    [32, 77000, 140],
-    [36, 100000, 180],
-    [30, 88000, 150],
-    [27, 36000, 160],
-    [32, 77000, 140],
-    [36, 100000, 180],
-    [30, 88000, 150],
-    [27, 36000, 160],
-    [32, 77000, 140]
-]))
+# Test data
+#nn = NeuralNetwork([2, 4, 3])
+#
+#X = scale(np.array([
+#    [36, 100000],
+#    [30, 88000],
+#    [27, 36000],
+#    [32, 77000],
+#    [32, 77000],
+#]))
+#
+#y = np.array([
+#    [1, 0, 0],
+#    [1, 0, 0],
+#    [0, 1, 0],
+#    [0, 0, 1],
+#    [0, 0, 1],
+#])
+#nn.fit(X, y)
 
-y = np.array([
-    [1, 0],
-    [1, 0],
-    [0, 1],
-    [0, 1],
-    [1, 0],
-    [1, 0],
-    [0, 1],
-    [0, 1],
-    [1, 0],
-    [1, 0],
-    [0, 1],
-    [0, 1],
-    ])
+# Mnist training data
+nn = NeuralNetwork([784, 32, 10])
 
+training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
+np.random.shuffle(training_data)
+
+X = np.zeros((len(training_data), 784, 1))
+y = np.zeros((len(training_data), 10, 1))
+
+for i in range(len(training_data)):
+    x, yp = training_data[i]
+    X[i, :] = x
+    y[i, :] = yp
+X = X.reshape(X.shape[0], X.shape[1])
+y = y.reshape(y.shape[0], y.shape[1])
 nn.fit(X, y)
-x = scale(np.array([
-    [28, 180000, 180],
-    [35, 37000, 200],
-    [32, 84000, 170],
-    [28, 180000, 180],
-    [35, 37000, 200],
-    [32, 84000, 170],
-    [28, 180000, 180],
-    [35, 37000, 200],
-    [32, 84000, 170],
-]))
-#print('prediction')
-#print(nn.predict(x))
