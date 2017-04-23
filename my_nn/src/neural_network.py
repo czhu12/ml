@@ -26,35 +26,88 @@ class NeuralNetwork():
         # Here we need to take softmax of prediction and y
         return np.exp(y) / np.sum(np.exp(y), axis=1, keepdims=True)
 
+    def rms_loss(self, y_, y):
+        return np.sqrt(np.sum(np.mean((y_ - y) ** 2)))
+
     def sigmoid(self, y):
         ans = 1 / (1 + np.exp(-y))
 
         return ans
+    
+    def calc_num_grads(self, X, y):
+        numericals = []
+        num_grads_w = map(lambda w: np.zeros(w.shape), self.weights)
+
+        for chk_idx in range(len(self.weights)):
+            for i in range(len(self.weights[chk_idx])):
+                for j in range(len(self.weights[chk_idx][i])):
+                    copied_weights = map(lambda w: np.copy(w), self.weights)
+
+                    copied_weights[chk_idx][i][j] -= 0.001
+                    prediction_1 = self.predict(X, copied_weights, self.biases)
+                    copied_weights[chk_idx][i][j] += 0.002
+                    prediction_2 = self.predict(X, copied_weights, self.biases)
+                    loss_1 = self.rms_loss(prediction_1, y)
+                    loss_2 = self.rms_loss(prediction_2, y)
+                    num_grad = (loss_2 - loss_1) / 0.002
+                    num_grads_w[chk_idx][i][j] = num_grad
+
+        num_grads_b = map(lambda b: np.zeros(b.shape), self.biases)
+        for chk_idx in range(len(self.biases)):
+            for i in range(len(self.biases[chk_idx])):
+                copied_biases = map(lambda b: np.copy(b), self.biases)
+
+                copied_biases[chk_idx][i] -= 0.001
+                prediction_1 = self.predict(X, self.weights, copied_biases)
+                copied_biases[chk_idx][i] += 0.002
+                prediction_2 = self.predict(X, self.weights, copied_biases)
+                loss_1 = self.rms_loss(prediction_1, y)
+                loss_2 = self.rms_loss(prediction_2, y)
+                num_grad = (loss_2 - loss_1) / 0.002
+                num_grads_b[chk_idx][i] = num_grad
+
+        return (num_grads_w, num_grads_b)
 
     def sigmoid_derivative(self, y):
         return self.sigmoid(y) * (1 - self.sigmoid(y))
 
-    def fit(self, X, y, epochs=30, batch_size=1000, rate=3.0):
+    def fit(self, X, y, epochs=1000000, batch_size=1000, rate=1e-1, gradient_check=False):
         for e in range(epochs):
-            for i in range(len(X) / batch_size):
-                idxs = np.random.choice(np.arange(len(X)), batch_size)
-                batch_x = X[idxs]
-                batch_y = y[idxs]
-                scores = self.backprop(batch_x, batch_y, rate)
+            #for i in range(len(X) / batch_size):
+                #idxs = np.random.choice(np.arange(len(X)), batch_size)
+                #batch_x = X[idxs]
+                #batch_y = y[idxs]
+            # Don't use backprop, update via num gradients instead
+            #(scores, all_gradients, dWs) = self.backprop(X, y, rate)
+            (num_grads_w, num_grads_b) = self.calc_num_grads(X, y)
+            for i in range(len(num_grads_w)):
+                self.weights[i] -= rate * num_grads_w[i]
+                self.biases[i] -= rate * num_grads_b[i]
+            #if gradient_check:
+            #    self.check_gradients(X, y, all_gradients, dWs)
+            if e % 1000 == 0:
+                scores = self.predict(X)
+                print(scores)
+                print(y)
+                print(self.accuracy(scores, y))
 
-            print('Finished epoch', e)
-            pred = self.predict(X)
-            #print('loss', self.cross_entropy_loss(pred, y))
-            print('accuracy', self.accuracy(pred, y))
+    def predict(self, x, weights=None, biases=None):
+        if not weights:
+            weights = self.weights
+        if not biases:
+            biases = self.biases
 
-    def predict(self, x):
-        for weight, bias in zip(self.weights, self.biases):
+        activation = x
+        for weight, bias in zip(weights, biases):
             z = activation.dot(weight) + bias
             activation = self.sigmoid(z)
         return activation
 
+    def rmse(self, y_, y):
+        return np.sqrt(np.mean(np.sum((y - y_)**2)))
+
     def set_gradient(self, y_, y):
-        return y_ - y
+        return (y_ - y) * 2
 
     def accuracy(self, y_, y):
         prediction_idxs = np.argmax(y_, axis=1)
@@ -78,6 +131,7 @@ class NeuralNetwork():
 
         dWs = []
         dbs = []
+        all_gradients = [gradients]
         # Back propagate
         for i in reversed(range(len(self.weights))):
             dW = activations[i].T.dot(gradients)
@@ -87,31 +141,33 @@ class NeuralNetwork():
 
             # Pass gradients back
             #pdb.set_trace()
-            dz_dw = gradients.dot(self.weights[i].T)
-            dw_dzprev = self.sigmoid_derivative(zs[i])
-            gradients = (gradients * self.sigmoid_derivative(zs[i])).dot(self.weights[i].T)
+            dz_da = self.sigmoid_derivative(zs[i])
+            da_dz = self.weights[i].T
+            all_gradients.append(dz_da)
+            all_gradients.append(da_dz)
+
+            gradients = (gradients * dz_da).dot(da_dz)
 
         for i in range(len(self.weights)):
             self.weights[i] -= rate * dWs[i]
             self.biases[i] -= rate * dbs[i]
-
-        return scores
-
-    def predict(self, X):
-        output = X
-        for i in range(0, len(self.layers) - 1):
-            weight = self.weights[i]
-            bias = self.biases[i]
-            output = output.dot(weight) + bias
-            output = self.sigmoid(output)
-
-        #output.dot(weight[-1]) + bias[-1]
-        #return self.softmax(output)
-        return output
+        return (scores, all_gradients, dWs)
 
 # Test data
-#nn = NeuralNetwork([2, 4, 3])
-#
+nn = NeuralNetwork([2, 4, 3])
+
+def generate_random_data(n=10, x_dim=2, y_dim=3):
+    X = np.zeros((n, 2))
+    y = np.zeros((n, 3))
+    for i in range(n):
+        X[i] = np.random.rand(x_dim)
+        idx = np.argmax(np.random.rand(y_dim))
+        y[i][idx] = 1
+
+    return X, y
+
+X, y = generate_random_data()
+X = scale(X)
 #X = scale(np.array([
 #    [36, 100000],
 #    [30, 88000],
@@ -127,21 +183,22 @@ class NeuralNetwork():
 #    [0, 0, 1],
 #    [0, 0, 1],
 #])
+
+nn.fit(X, y, gradient_check=True)
+
+## Mnist training data
+#nn = NeuralNetwork([784, 32, 10])
+#
+#training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
+#np.random.shuffle(training_data)
+#
+#X = np.zeros((len(training_data), 784, 1))
+#y = np.zeros((len(training_data), 10, 1))
+#
+#for i in range(len(training_data)):
+#    x, yp = training_data[i]
+#    X[i, :] = x
+#    y[i, :] = yp
+#X = X.reshape(X.shape[0], X.shape[1])
+#y = y.reshape(y.shape[0], y.shape[1])
 #nn.fit(X, y)
-
-# Mnist training data
-nn = NeuralNetwork([784, 32, 10])
-
-training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
-np.random.shuffle(training_data)
-
-X = np.zeros((len(training_data), 784, 1))
-y = np.zeros((len(training_data), 10, 1))
-
-for i in range(len(training_data)):
-    x, yp = training_data[i]
-    X[i, :] = x
-    y[i, :] = yp
-X = X.reshape(X.shape[0], X.shape[1])
-y = y.reshape(y.shape[0], y.shape[1])
-nn.fit(X, y)
