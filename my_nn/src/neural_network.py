@@ -33,7 +33,7 @@ class NeuralNetwork():
         ans = 1 / (1 + np.exp(-y))
 
         return ans
-    
+
     def calc_num_grads(self, X, y):
         numericals = []
         num_grads_w = map(lambda w: np.zeros(w.shape), self.weights)
@@ -71,25 +71,31 @@ class NeuralNetwork():
     def sigmoid_derivative(self, y):
         return self.sigmoid(y) * (1 - self.sigmoid(y))
 
-    def fit(self, X, y, epochs=1000000, batch_size=1000, rate=1e-1, gradient_check=False):
+    def fit(self, X, y, epochs=1000000, batch_size=1000, rate=1, gradient_check=False):
         for e in range(epochs):
-            #for i in range(len(X) / batch_size):
-                #idxs = np.random.choice(np.arange(len(X)), batch_size)
-                #batch_x = X[idxs]
-                #batch_y = y[idxs]
+            for i in range(len(X) / batch_size):
+                idxs = np.random.choice(np.arange(len(X)), batch_size)
+                batch_x = X[idxs]
+                batch_y = y[idxs]
+                self.backprop(batch_x, batch_y)
+
+            scores = self.predict(X)
+            #print(scores)
+            #print(y)
+            print('epoch: ', e, 'loss: ', self.rms_loss(scores, y))
+            print('epoch: ', e, 'accuracy: ', self.accuracy(scores, y))
+
             # Don't use backprop, update via num gradients instead
             #(scores, all_gradients, dWs) = self.backprop(X, y, rate)
-            (num_grads_w, num_grads_b) = self.calc_num_grads(X, y)
-            for i in range(len(num_grads_w)):
-                self.weights[i] -= rate * num_grads_w[i]
-                self.biases[i] -= rate * num_grads_b[i]
+            #self.backprop(X, y)
             #if gradient_check:
             #    self.check_gradients(X, y, all_gradients, dWs)
-            if e % 1000 == 0:
-                scores = self.predict(X)
-                print(scores)
-                print(y)
-                print(self.accuracy(scores, y))
+            #if i % 100 == 0:
+            #    scores = self.predict(X)
+            #    #print(scores)
+            #    #print(y)
+            #    print('loss: ', self.rms_loss(scores, y))
+            #    print('accuracy: ', self.accuracy(scores, y))
 
     def predict(self, x, weights=None, biases=None):
         if not weights:
@@ -107,7 +113,7 @@ class NeuralNetwork():
         return np.sqrt(np.mean(np.sum((y - y_)**2)))
 
     def set_gradient(self, y_, y):
-        return (y_ - y) * 2
+        return -2 / (len(y)) * (y - y_)
 
     def accuracy(self, y_, y):
         prediction_idxs = np.argmax(y_, axis=1)
@@ -131,30 +137,34 @@ class NeuralNetwork():
 
         dWs = []
         dbs = []
+        gradients = gradients * self.sigmoid_derivative(zs[-1])
+        dWs.append(activations[-2].T.dot(gradients))
+        dbs.append(np.sum(gradients, axis=0))
         all_gradients = [gradients]
-        # Back propagate
-        for i in reversed(range(len(self.weights))):
+        ## Back propagate
+        for i in reversed(range(0, len(self.weights) - 1)):
+            # Pass gradients back
+            #pdb.set_trace()
+            da_dz = self.weights[i + 1].T
+            dz_da = self.sigmoid_derivative(zs[i])
+            gradients = gradients.dot(da_dz) * dz_da
+
+            all_gradients.append(da_dz)
+            all_gradients.append(dz_da)
             dW = activations[i].T.dot(gradients)
             db = np.sum(gradients, axis=0)
             dWs.insert(0, dW)
             dbs.insert(0, db)
 
-            # Pass gradients back
-            #pdb.set_trace()
-            dz_da = self.sigmoid_derivative(zs[i])
-            da_dz = self.weights[i].T
-            all_gradients.append(dz_da)
-            all_gradients.append(da_dz)
-
-            gradients = (gradients * dz_da).dot(da_dz)
-
+        #print(map(lambda x: x.shape, self.weights))
+        #print(map(lambda x: x.shape, dWs))
         for i in range(len(self.weights)):
             self.weights[i] -= rate * dWs[i]
             self.biases[i] -= rate * dbs[i]
         return (scores, all_gradients, dWs)
 
 # Test data
-nn = NeuralNetwork([2, 4, 3])
+nn = NeuralNetwork([2, 10, 3])
 
 def generate_random_data(n=10, x_dim=2, y_dim=3):
     X = np.zeros((n, 2))
@@ -166,39 +176,41 @@ def generate_random_data(n=10, x_dim=2, y_dim=3):
 
     return X, y
 
-X, y = generate_random_data()
-X = scale(X)
-#X = scale(np.array([
-#    [36, 100000],
-#    [30, 88000],
-#    [27, 36000],
-#    [32, 77000],
-#    [32, 77000],
-#]))
+#X, y = generate_random_data(20)
+#X = scale(X)
+##X = scale(np.array([
+##    [36, 100000],
+##    [30, 88000],
+##    [27, 36000],
+##    [32, 77000],
+##    [32, 77000],
+##]))
+##
+##y = np.array([
+##    [1, 0, 0],
+##    [1, 0, 0],
+##    [0, 1, 0],
+##    [0, 0, 1],
+##    [0, 0, 1],
+##])
 #
-#y = np.array([
-#    [1, 0, 0],
-#    [1, 0, 0],
-#    [0, 1, 0],
-#    [0, 0, 1],
-#    [0, 0, 1],
-#])
+#nn.fit(X, y, gradient_check=True)
 
-nn.fit(X, y, gradient_check=True)
+# Mnist training data
+nn = NeuralNetwork([784, 32, 10])
 
-## Mnist training data
-#nn = NeuralNetwork([784, 32, 10])
-#
-#training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
-#np.random.shuffle(training_data)
-#
-#X = np.zeros((len(training_data), 784, 1))
-#y = np.zeros((len(training_data), 10, 1))
-#
-#for i in range(len(training_data)):
-#    x, yp = training_data[i]
-#    X[i, :] = x
-#    y[i, :] = yp
-#X = X.reshape(X.shape[0], X.shape[1])
-#y = y.reshape(y.shape[0], y.shape[1])
-#nn.fit(X, y)
+training_data, validation_data, test_data = mnist_loader.load_data_wrapper()
+np.random.shuffle(training_data)
+
+X = np.zeros((len(training_data), 784, 1))
+y = np.zeros((len(training_data), 10, 1))
+
+for i in range(len(training_data)):
+    x, yp = training_data[i]
+    X[i, :] = x
+    y[i, :] = yp
+print(X.shape)
+print(y.shape)
+X = X.reshape(X.shape[0], X.shape[1])
+y = y.reshape(y.shape[0], y.shape[1])
+nn.fit(X, y)
